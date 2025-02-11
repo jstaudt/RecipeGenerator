@@ -1,0 +1,22 @@
+{
+  "name": "recipe-generator",
+  "version": "1.0.0",
+  "description": "An app to generate a weekly list of recipes and ",
+  "main": "app.js",
+  "repository": "https://github.com/awslabs/aws-sam-cli/tree/develop/samcli/local/init/templates/cookiecutter-aws-sam-hello-nodejs",
+  "author": "SAM CLI",
+  "license": "MIT",
+  "dependencies": {
+    "axios": ">=1.6.0",
+    "dotenv": "^16.4.7",
+    "knex": "^3.1.0",
+    "mysql": "^2.18.1"
+  },
+  "scripts": {
+    "test": "mocha tests/unit/"
+  },
+  "devDependencies": {
+    "chai": "^4.3.6",
+    "mocha": "^10.2.0"
+  }
+}
