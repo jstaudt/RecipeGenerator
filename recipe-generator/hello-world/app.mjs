@@ -28,16 +28,33 @@ export const lambdaHandler = async (event, context) => {
    * @param {number} limit - the number of recipes to return (<= 4)
    */
   const getNewRecipes = async (limit) => {
-    const recipes = await knex("recipeList")
+    let vegRecipe;
+    let recipes = await knex("recipeList")
       .where("hasBeenMade", "N")
       .whereNotIn("Name", randomRecipes);
 
-    return recipes
+    // get a veg recipe from the array
+    vegRecipe = recipes.find((recipe) => recipe.vegetarian == "Y");
+    vegRecipe = vegRecipe ? vegRecipe.Name : "";
+
+    // if there is a veg recipe and the limit is 2, leave the limit as is, otherwise add 1
+    limit = vegRecipe.length && limit == 2 ? limit : (limit += 1);
+
+    // get non-veg recipes from array
+    recipes = recipes
+      .filter((recipe) => recipe.vegetarian != "Y")
       .sort(() => Math.random() - 0.5)
       .slice(0, limit)
       .map((item, index) => {
         return item.Name;
       });
+
+    // only add a vegRecipe if limit is 2, for a total of 3 recipes
+    if (vegRecipe.length && limit == 2) {
+      recipes.push(vegRecipe);
+    }
+
+    return recipes;
   };
 
   /** updates all recipes that are stored in randomRecipes array to hasBeenMade=Y
@@ -48,11 +65,11 @@ export const lambdaHandler = async (event, context) => {
     });
   };
 
-  randomRecipes = await getNewRecipes(4);
+  randomRecipes = await getNewRecipes(2);
   const randomRecipeCount = randomRecipes.length;
 
   // if there are less than 4 recipes retrieved
-  if (randomRecipeCount < 4) {
+  if (randomRecipeCount < 3) {
     // update all records to hasBeenMade=N
     await knex("recipeList").update({
       hasBeenMade: "N",
@@ -60,24 +77,19 @@ export const lambdaHandler = async (event, context) => {
 
     // if there is at least 1 recipe retrieved, get remainder recipes, merge remainder and random recipes, and update the 4 corresponding records to haveBeenMade=Y
     if (randomRecipeCount > 0) {
-      remainderRecipes = await getNewRecipes(4 - randomRecipeCount);
+      remainderRecipes = await getNewRecipes(3 - randomRecipeCount);
       randomRecipes = randomRecipes.concat(remainderRecipes);
-
-      await updateRecipes();
     } else {
       // if there are no recipes retrieved, get a fresh 4 and update them to hasBeenMade=Y
-      randomRecipes = await getNewRecipes(4);
-
-      await updateRecipes();
+      randomRecipes = await getNewRecipes(2);
     }
-  } else {
-    // if all 4 recipes are retrieved, update those 4 recipes to hasBeenMade=Y
-    await updateRecipes();
   }
+
+  await updateRecipes();
 
   const command = new SendEmailCommand({
     Destination: {
-      ToAddresses: ["johnstaudt.sa@gmail.com"],
+      ToAddresses: ["charte@hfmsa.com"],
     },
     Message: {
       Body: {
