@@ -6,6 +6,7 @@ const sesClient = new SESClient({ region: "us-east-1" });
 const host = process.env.HOST;
 const user = process.env.DB_USER;
 const password = process.env.DB_PASS;
+const recipient = process.env.RECIPIENT;
 const database = "recipeapp";
 const connection = {
   ssl: { rejectUnauthorized: false },
@@ -21,37 +22,47 @@ const knex = Knex({
 });
 
 export const lambdaHandler = async (event, context) => {
+  let isReset = false;
   let randomRecipes = [];
   let remainderRecipes = [];
+  let htmlString =
+    '<!DOCTYPE html><html><body><div style="display:flex;justify-content:center;"><h2>Your Recipes for the Week</h2></div><ul style="list-style-type:decimal;">';
 
   /** gets 4 or less recipes at random from all recipes that have not been made
-   * @param {number} limit - the number of recipes to return (<= 4)
+   * @param {number} limit - the number of recipes to return (<= 3)
    */
   const getNewRecipes = async (limit) => {
-    let vegRecipe;
+    let vegRecipe, vegRecipeHtml;
+
+    // get recipes that haven't been made yet
     let recipes = await knex("recipeList")
       .where("hasBeenMade", "N")
       .whereNotIn("Name", randomRecipes);
 
     // get a veg recipe from the array
     vegRecipe = recipes.find((recipe) => recipe.vegetarian == "Y");
-    vegRecipe = vegRecipe ? vegRecipe.Name : "";
+    vegRecipeHtml = vegRecipe
+      ? `<li style="padding-bottom:15px;font-size:18px;">${vegRecipe.Name} (source: ${vegRecipe.source})</li>`
+      : "";
 
-    // if there is a veg recipe and the limit is 2, leave the limit as is, otherwise add 1
-    limit = vegRecipe.length && limit == 2 ? limit : (limit += 1);
-
-    // get non-veg recipes from array
+    // get  random non-veg recipes from array
     recipes = recipes
       .filter((recipe) => recipe.vegetarian != "Y")
       .sort(() => Math.random() - 0.5)
       .slice(0, limit)
       .map((item, index) => {
+        if (item.source.includes("https")) {
+          item.source = `<a href="${item.source}" target="_blank">Link to Recipe!</a>`;
+        }
+        htmlString += `<li style="padding-bottom:15px;font-size:18px;">${item.Name} (source: ${item.source})</li>`;
+
         return item.Name;
       });
 
-    // only add a vegRecipe if limit is 2, for a total of 3 recipes
-    if (vegRecipe.length && limit == 2) {
-      recipes.push(vegRecipe);
+    // only add a vegRecipe if we aren't getting a remainder (a list reset)
+    if (vegRecipe && !isReset) {
+      recipes.push(vegRecipe.Name);
+      htmlString += vegRecipeHtml;
     }
 
     return recipes;
@@ -65,51 +76,61 @@ export const lambdaHandler = async (event, context) => {
     });
   };
 
+  // retrieve recipes from db and capture the count
   randomRecipes = await getNewRecipes(2);
   const randomRecipeCount = randomRecipes.length;
 
-  // if there are less than 4 recipes retrieved
+  // if there are less than 3 recipes retrieved
   if (randomRecipeCount < 3) {
     // update all records to hasBeenMade=N
     await knex("recipeList").update({
       hasBeenMade: "N",
     });
 
-    // if there is at least 1 recipe retrieved, get remainder recipes, merge remainder and random recipes, and update the 4 corresponding records to haveBeenMade=Y
+    // if there is at least 1 recipe retrieved, get remainder recipes, merge remainder and random recipes
     if (randomRecipeCount > 0) {
-      remainderRecipes = await getNewRecipes(3 - randomRecipeCount);
+      isReset = true;
+      const remainder = parseInt(3 - randomRecipeCount);
+      remainderRecipes = await getNewRecipes(remainder);
       randomRecipes = randomRecipes.concat(remainderRecipes);
     } else {
-      // if there are no recipes retrieved, get a fresh 4 and update them to hasBeenMade=Y
+      // if there are no recipes retrieved, get a fresh 3 and update them to hasBeenMade=Y
       randomRecipes = await getNewRecipes(2);
     }
   }
 
+  // after all recipes have been stored in the array, update the db
   await updateRecipes();
 
+  // concat closing tags of email body html
+  htmlString += "</ul></body></html>";
+
+  /**************************************Email functiionality**************************************************************** */
+  // configure email notification
   const command = new SendEmailCommand({
     Destination: {
-      ToAddresses: ["charte@hfmsa.com"],
+      ToAddresses: [recipient],
     },
     Message: {
       Body: {
-        Text: {
-          Data: JSON.stringify(randomRecipes),
+        Html: {
+          Data: htmlString,
           Charset: "UTF-8",
         },
       },
       Subject: {
-        Data: "From Johnny: ",
+        Data: "Dinner Ideas for Next Week",
         Charset: "UTF-8",
       },
     },
     Source: "johnstaudt.sa@gmail.com",
   });
 
+  // send email notification
   try {
     await sesClient.send(command);
   } catch (error) {
-    console.log("send email error");
+    console.log(`send email error ${JSON.stringify(error)}`);
   } finally {
     console.log("send email success");
   }
@@ -117,7 +138,7 @@ export const lambdaHandler = async (event, context) => {
   const response = {
     statusCode: 200,
     body: {
-      message: randomRecipes,
+      message: htmlString,
     },
   };
 
