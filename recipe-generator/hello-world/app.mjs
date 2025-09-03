@@ -2,12 +2,12 @@ import Knex from "knex";
 import "dotenv/config.js";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 
-const sesClient = new SESClient({ region: "us-east-1" });
 const host = process.env.HOST;
 const user = process.env.DB_USER;
 const password = process.env.DB_PASS;
 const recipient = process.env.RECIPIENT;
 const database = "recipeapp";
+const sesClient = new SESClient({ region: "us-east-1" });
 const connection = {
   ssl: { rejectUnauthorized: false },
   host,
@@ -15,7 +15,6 @@ const connection = {
   password,
   database,
 };
-
 const knex = Knex({
   client: "mysql",
   connection,
@@ -132,7 +131,7 @@ export const lambdaHandler = async (event, context) => {
   } catch (error) {
     console.log(`send email error ${JSON.stringify(error)}`);
   } finally {
-    console.log("send email success");
+    console.log(`send email success`);
   }
 
   const response = {
